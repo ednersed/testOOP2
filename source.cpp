@@ -1,13 +1,14 @@
 #include <windows.h>
 #include "Header.h"
 #include <iostream>
+#include <cmath>
 using namespace std;
 
 extern HDC hdc;
 #define KEY_DOWN(vk_code) ((GetAsyncKeyState(vk_code) & 0x8000) ? 1 : 0)
 
 /*----------------------------------------*/
-/*        ������ ������ Location          */
+/*        Методы класса Location          */
 /*----------------------------------------*/
 Location::Location(int InitX, int InitY) { X = InitX; Y = InitY; }
 Location::~Location() {}
@@ -18,7 +19,7 @@ void Location::SetY(int NewY) { Y = NewY; }
 void Location::SetPosition(int NewX, int NewY) { X = NewX; Y = NewY; }
 
 /*----------------------------------------*/
-/*        ������ ������ Point             */
+/*        Методы класса Point             */
 /*----------------------------------------*/
 Point::Point(int InitX, int InitY) : Location(InitX, InitY) { Visible = false; }
 Point::~Point() {}
@@ -60,30 +61,51 @@ void Point::Drag(int Step)
 }
 
 /*----------------------------------------*/
-/*        ������ ������ Tank              */
+/*    Полиморфная функция проверки коллизий */
 /*----------------------------------------*/
-Tank::Tank(int InitX, int InitY, int bW, int bH, int tW, int tH, int gL, int trH)
+void CheckCollisions(Tank* activeTank, IInteractable** objects, int objectCount)
+{
+    if (activeTank->IsDestroyed()) return;
+
+    for (int i = 0; i < objectCount; i++)
+    {
+        if (objects[i]->IsActive() && objects[i]->CheckCollision(activeTank))
+        {
+            objects[i]->OnCollision(activeTank);
+        }
+    }
+}
+
+/*----------------------------------------*/
+/*        Методы класса Tank              */
+/*----------------------------------------*/
+Tank::Tank(int InitX, int InitY, int bW, int bH, int tW, int tH, int gL, int trH, int spd)
     : Point(InitX, InitY)
 {
     bodyWidth = bW; bodyHeight = bH; turretWidth = tW; turretHeight = tH;
-    gunLength = gL; trackHeight = trH;
+    gunLength = gL; trackHeight = trH; speed = spd;
     health = 100;
+    isDestroyed = false;
 }
 Tank::~Tank() {}
 void Tank::Drag(int step)
 {
+    if (isDestroyed) return;
+
     int figX = GetX(), figY = GetY();
     while (1)
     {
         if (KEY_DOWN(VK_ESCAPE)) break;
-        if (KEY_DOWN(VK_LEFT)) { figX -= step; MoveTo(figX, figY); Sleep(200); }
-        if (KEY_DOWN(VK_RIGHT)) { figX += step; MoveTo(figX, figY); Sleep(200); }
-        if (KEY_DOWN(VK_UP)) { figY -= step; MoveTo(figX, figY); Sleep(200); }
-        if (KEY_DOWN(VK_DOWN)) { figY += step; MoveTo(figX, figY); Sleep(200); }
+        if (KEY_DOWN(VK_LEFT)) { figX -= speed; MoveTo(figX, figY); Sleep(200); }
+        if (KEY_DOWN(VK_RIGHT)) { figX += speed; MoveTo(figX, figY); Sleep(200); }
+        if (KEY_DOWN(VK_UP)) { figY -= speed; MoveTo(figX, figY); Sleep(200); }
+        if (KEY_DOWN(VK_DOWN)) { figY += speed; MoveTo(figX, figY); Sleep(200); }
     }
 }
 void Tank::Show()
 {
+    if (isDestroyed) return;
+
     Visible = true;
     HPEN pen = CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
     HBRUSH brush = CreateSolidBrush(RGB(0, 128, 0));
@@ -94,24 +116,28 @@ void Tank::Show()
     Rectangle(hdc, X + bodyWidth / 6, Y, X + bodyWidth - bodyWidth / 6, Y + bodyHeight);
     DeleteObject(brush);
 
-    // �����
-    int turretTop = Y - turretHeight;
-    brush = CreateSolidBrush(RGB(0, 80, 0)); SelectObject(hdc, brush);
-    Rectangle(hdc, X + (bodyWidth - turretWidth) / 2, turretTop,
-              X + (bodyWidth + turretWidth) / 2, turretTop + turretHeight);
-    DeleteObject(brush);
+    // Башня (если есть)
+    if (turretHeight > 0) {
+        int turretTop = Y - turretHeight;
+        brush = CreateSolidBrush(RGB(0, 80, 0)); SelectObject(hdc, brush);
+        Rectangle(hdc, X + (bodyWidth - turretWidth) / 2, turretTop,
+                  X + (bodyWidth + turretWidth) / 2, turretTop + turretHeight);
+        DeleteObject(brush);
 
-    // ����� �� ������ ����� (������������!)
-    int turretCenterX = X + bodyWidth/2;
-    int turretCenterY = turretTop + turretHeight/2;
-    int barrelWidth = gunLength;
-    int barrelHeight = 20;
-    brush = CreateSolidBrush(RGB(70, 70, 70)); SelectObject(hdc, brush);
-    Rectangle(hdc, turretCenterX, turretCenterY - barrelHeight/2,
-              turretCenterX + barrelWidth, turretCenterY + barrelHeight/2);
-    DeleteObject(brush);
+        // Ствол на центре башни (если есть)
+        if (gunLength > 0) {
+            int turretCenterX = X + bodyWidth/2;
+            int turretCenterY = turretTop + turretHeight/2;
+            int barrelWidth = gunLength;
+            int barrelHeight = 20;
+            brush = CreateSolidBrush(RGB(70, 70, 70)); SelectObject(hdc, brush);
+            Rectangle(hdc, turretCenterX, turretCenterY - barrelHeight/2,
+                      turretCenterX + barrelWidth, turretCenterY + barrelHeight/2);
+            DeleteObject(brush);
+        }
+    }
 
-    // �����/�����
+    // Колеса/гусли
     brush = CreateSolidBrush(RGB(20,20,20)); SelectObject(hdc, brush);
     Ellipse(hdc, X + bodyWidth/6, Y + bodyHeight + trackHeight/4,
         X + bodyWidth/6 + trackHeight/2, Y + bodyHeight + trackHeight - trackHeight/4);
@@ -124,33 +150,97 @@ void Tank::Show()
 void Tank::Hide()
 {
     Visible = false;
-    HPEN blackPen = CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
+    HPEN blackPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
     HBRUSH blackBrush = CreateSolidBrush(RGB(0, 0, 0));
     SelectObject(hdc, blackPen); SelectObject(hdc, blackBrush);
-    Rectangle(hdc, X - 30, Y - turretHeight - 30,
-        X + bodyWidth + gunLength + 40, Y + bodyHeight + trackHeight + 30);
+
+    // ИСПРАВЛЕНИЕ: Учитываем длину пушки при очистке
+    int clearWidth = bodyWidth + gunLength + 20;  // Добавляем gunLength
+    int clearHeight = bodyHeight + trackHeight + (turretHeight > 0 ? turretHeight : 0) + 10;
+    int clearX = X - 10;  // Небольшой отступ слева
+    int clearY = Y - (turretHeight > 0 ? turretHeight : 0) - 5;
+
+    Rectangle(hdc, clearX, clearY, clearX + clearWidth, clearY + clearHeight);
+
     DeleteObject(blackBrush); DeleteObject(blackPen);
 }
 void Tank::TakeDamage(int dmg)
 {
+    if (isDestroyed) return;
+
     health -= dmg;
-    if (health < 0) health = 0;
+    cout << "Tank took " << dmg << " damage! Health: " << health << endl;
+    if (health <= 0) {
+        health = 0;
+        Explode();
+    }
+}
+void Tank::Heal(int amount)
+{
+    if (isDestroyed) return;
+
+    health += amount;
+    if (health > 100) health = 100;
+    cout << "Tank healed by " << amount << " HP! Health: " << health << endl;
+}
+void Tank::Explode()
+{
+    if (isDestroyed) return;
+
+    cout << "TANK DESTROYED! Explosion at (" << X << ", " << Y << ")" << endl;
+
+    Hide();
+
+    // Анимация взрыва
+    HPEN pen = CreatePen(PS_SOLID, 5, RGB(255, 100, 0));
+    HBRUSH brush = CreateSolidBrush(RGB(255, 200, 0));
+    SelectObject(hdc, pen); SelectObject(hdc, brush);
+
+    // Несколько кругов взрыва
+    Ellipse(hdc, X - 60, Y - 60, X + bodyWidth + 60, Y + bodyHeight + 60);
+    DeleteObject(brush);
+
+    brush = CreateSolidBrush(RGB(255, 150, 0)); SelectObject(hdc, brush);
+    Ellipse(hdc, X - 40, Y - 40, X + bodyWidth + 40, Y + bodyHeight + 40);
+    DeleteObject(brush);
+
+    brush = CreateSolidBrush(RGB(255, 255, 0)); SelectObject(hdc, brush);
+    Ellipse(hdc, X - 20, Y - 20, X + bodyWidth + 20, Y + bodyHeight + 20);
+    DeleteObject(brush); DeleteObject(pen);
+
+    Sleep(1000);
+
+    // Очистка взрыва
+    HPEN blackPen = CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
+    HBRUSH blackBrush = CreateSolidBrush(RGB(0, 0, 0));
+    SelectObject(hdc, blackPen); SelectObject(hdc, blackBrush);
+    Rectangle(hdc, X - 70, Y - 70, X + bodyWidth + 70, Y + bodyHeight + 70);
+    DeleteObject(blackBrush); DeleteObject(blackPen);
+
+    isDestroyed = true;
 }
 int Tank::GetHealth() const { return health; }
-// Double dispatch (������� ���������)
-void Tank::OnHit(Rocket* rocket) {
-    TakeDamage(rocket->GetPower());
-}
+int Tank::GetSpeed() const { return speed; }
+int Tank::GetBodyWidth() const { return bodyWidth; }
+int Tank::GetBodyHeight() const { return bodyHeight; }
+bool Tank::IsDestroyed() const { return isDestroyed; }
 
 /*-------------------- HEAVY TANK ---------------------*/
 HeavyTank::HeavyTank(int InitX, int InitY)
-    : Tank(InitX, InitY, 300, 130, 130, 80, 170, 45)
+    : Tank(InitX, InitY, 320, 140, 140, 90, 200, 50, 20)
 {
     health = 150;
+    targetX = InitX;
+    targetY = InitY - 300;
 }
 HeavyTank::~HeavyTank() {}
+
+void HeavyTank::SetTarget(int x, int y) { targetX = x; targetY = y; }
+void HeavyTank::ShowTargetingSystem() {}
+
 void HeavyTank::Show()
 {
+    if (isDestroyed) return;
     HPEN pen = CreatePen(PS_SOLID, 3, RGB(50, 0, 0));
     HBRUSH brush = CreateSolidBrush(RGB(100, 50, 50));
     SelectObject(hdc, pen); SelectObject(hdc, brush);
@@ -159,23 +249,32 @@ void HeavyTank::Show()
     brush = CreateSolidBrush(RGB(90, 30, 30)); SelectObject(hdc, brush);
     Rectangle(hdc, X + bodyWidth / 6, Y, X + bodyWidth - bodyWidth / 6, Y + bodyHeight);
     DeleteObject(brush);
-
     int turretTop = Y - turretHeight;
     brush = CreateSolidBrush(RGB(80, 20, 20)); SelectObject(hdc, brush);
     Rectangle(hdc, X + (bodyWidth - turretWidth)/2, turretTop,
               X + (bodyWidth + turretWidth)/2, turretTop + turretHeight);
     DeleteObject(brush);
-
-    // ����� �� ������ �����
     int turretCenterX = X + bodyWidth/2;
     int turretCenterY = turretTop + turretHeight/2;
-    int barrelWidth = gunLength;
-    int barrelHeight = 28;
-    brush = CreateSolidBrush(RGB(110, 60, 60)); SelectObject(hdc, brush);
-    Rectangle(hdc, turretCenterX, turretCenterY - barrelHeight/2,
-              turretCenterX + barrelWidth, turretCenterY + barrelHeight/2);
-    DeleteObject(brush);
-
+    double artilleryAngle = -M_PI/4; // -45 градусов
+    int gunEndX = turretCenterX + (int)(gunLength * cos(artilleryAngle));
+    int gunEndY = turretCenterY + (int)(gunLength * sin(artilleryAngle));
+    HPEN gunPen = CreatePen(PS_SOLID, 12, RGB(110, 60, 60));
+    SelectObject(hdc, gunPen);
+    MoveToEx(hdc, turretCenterX, turretCenterY, NULL);
+    LineTo(hdc, gunEndX, gunEndY);
+    DeleteObject(gunPen);
+    HPEN rocketPen = CreatePen(PS_SOLID, 6, RGB(120, 120, 120));
+    SelectObject(hdc, rocketPen);
+    int offsetY = 25;
+    int rocketEndX = turretCenterX + (int)((gunLength - 40) * cos(artilleryAngle));
+    int rocketEndY1 = turretCenterY + (int)((gunLength - 40) * sin(artilleryAngle)) - offsetY;
+    int rocketEndY2 = turretCenterY + (int)((gunLength - 40) * sin(artilleryAngle)) + offsetY;
+    MoveToEx(hdc, turretCenterX, turretCenterY - offsetY, NULL);
+    LineTo(hdc, rocketEndX, rocketEndY1);
+    MoveToEx(hdc, turretCenterX, turretCenterY + offsetY, NULL);
+    LineTo(hdc, rocketEndX, rocketEndY2);
+    DeleteObject(rocketPen);
     brush = CreateSolidBrush(RGB(40,20,20)); SelectObject(hdc, brush);
     Ellipse(hdc, X + bodyWidth/6, Y + bodyHeight + trackHeight/4,
         X + bodyWidth/6 + trackHeight/2, Y + bodyHeight + trackHeight - trackHeight/4);
@@ -185,76 +284,101 @@ void HeavyTank::Show()
         X + bodyWidth - bodyWidth/6, Y + bodyHeight + trackHeight - trackHeight/4);
     DeleteObject(brush); DeleteObject(pen);
 }
+
+// Исправленный Hide для HeavyTank с очисткой диагональной пушки!
+void HeavyTank::Hide()
+{
+    Visible = false;
+    HPEN blackPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
+    HBRUSH blackBrush = CreateSolidBrush(RGB(0, 0, 0));
+    SelectObject(hdc, blackPen); SelectObject(hdc, blackBrush);
+
+    // 1. Корпус + башня + гусеницы
+    int clearWidth = bodyWidth + 20;
+    int clearHeight = bodyHeight + trackHeight + turretHeight + 20;
+    int clearX = X - 10;
+    int clearY = Y - turretHeight - 10;
+    Rectangle(hdc, clearX, clearY, clearX + clearWidth, clearY + clearHeight);
+
+    // 2. Диагональная основная пушка (широкий прямоугольник)
+    int turretCenterX = X + bodyWidth/2;
+    int turretCenterY = (Y - turretHeight) + turretHeight/2;
+    double artilleryAngle = -M_PI/4;
+    int gunEndX = turretCenterX + (int)(gunLength * cos(artilleryAngle));
+    int gunEndY = turretCenterY + (int)(gunLength * sin(artilleryAngle));
+    int left = min(turretCenterX, gunEndX) - 20;
+    int top = min(turretCenterY, gunEndY) - 20;
+    int right = max(turretCenterX, gunEndX) + 20;
+    int bottom = max(turretCenterY, gunEndY) + 20;
+    Rectangle(hdc, left, top, right, bottom);
+
+    DeleteObject(blackBrush); DeleteObject(blackPen);
+}
+
 void HeavyTank::TakeDamage(int dmg)
 {
-    health -= dmg / 2;
-    if (health < 0) health = 0;
-}
-void HeavyTank::OnHit(Rocket* rocket) {
-    TakeDamage(rocket->GetPower() / 2);
+    if (isDestroyed) return;
+    health -= dmg / 2; // Усиленная броня
+    cout << "Heavy Tank took " << (dmg/2) << " damage (armor reduced)! Health: " << health << endl;
+    if (health <= 0) {
+        health = 0;
+        Explode();
+    }
 }
 
 /*-------------------- LIGHT TANK ---------------------*/
 LightTank::LightTank(int InitX, int InitY)
-    : Tank(InitX, InitY, 180, 80, 70, 40, 100, 22)
+    : Tank(InitX, InitY, 160, 70, 0, 0, 0, 20, 50)
 {
-    health = 80;
+    health = 60;
 }
 LightTank::~LightTank() {}
 void LightTank::Show()
 {
+    if (isDestroyed) return;
+
     HPEN pen = CreatePen(PS_SOLID, 3, RGB(0, 0, 128));
     HBRUSH brush = CreateSolidBrush(RGB(100, 100, 180));
     SelectObject(hdc, pen); SelectObject(hdc, brush);
     Rectangle(hdc, X, Y + bodyHeight, X + bodyWidth, Y + bodyHeight + trackHeight);
     DeleteObject(brush);
+
+    // Корпус без башни - легкая разведка, без тяжелых
     brush = CreateSolidBrush(RGB(80, 80, 180)); SelectObject(hdc, brush);
-    Rectangle(hdc, X + bodyWidth / 6, Y, X + bodyWidth - bodyWidth / 6, Y + bodyHeight);
+    Rectangle(hdc, X + bodyWidth / 8, Y, X + bodyWidth - bodyWidth / 8, Y + bodyHeight);
     DeleteObject(brush);
 
-    int turretTop = Y - turretHeight;
-    brush = CreateSolidBrush(RGB(50, 50, 140)); SelectObject(hdc, brush);
-    Rectangle(hdc, X + (bodyWidth - turretWidth)/2, turretTop,
-              X + (bodyWidth + turretWidth)/2, turretTop + turretHeight);
-    DeleteObject(brush);
-
-    // ����� �� ������ �����
-    int turretCenterX = X + bodyWidth/2;
-    int turretCenterY = turretTop + turretHeight/2;
-    int barrelWidth = gunLength;
-    int barrelHeight = 14;
-    brush = CreateSolidBrush(RGB(120, 120, 200)); SelectObject(hdc, brush);
-    Rectangle(hdc, turretCenterX, turretCenterY - barrelHeight/2,
-              turretCenterX + barrelWidth, turretCenterY + barrelHeight/2);
-    DeleteObject(brush);
-
+    // Только колеса без орудия
     brush = CreateSolidBrush(RGB(60,60,100)); SelectObject(hdc, brush);
-    Ellipse(hdc, X + bodyWidth/6, Y + bodyHeight + trackHeight/4,
-        X + bodyWidth/6 + trackHeight/2, Y + bodyHeight + trackHeight - trackHeight/4);
-    Ellipse(hdc, X + bodyWidth/2 - trackHeight/4, Y + bodyHeight + trackHeight/4,
-        X + bodyWidth/2 + trackHeight/4, Y + bodyHeight + trackHeight - trackHeight/4);
-    Ellipse(hdc, X + bodyWidth - bodyWidth/6 - trackHeight/2, Y + bodyHeight + trackHeight/4,
-        X + bodyWidth - bodyWidth/6, Y + bodyHeight + trackHeight - trackHeight/4);
+    Ellipse(hdc, X + bodyWidth/4, Y + bodyHeight + trackHeight/4,
+        X + bodyWidth/4 + trackHeight/2, Y + bodyHeight + trackHeight - trackHeight/4);
+    Ellipse(hdc, X + bodyWidth*3/4 - trackHeight/2, Y + bodyHeight + trackHeight/4,
+        X + bodyWidth*3/4, Y + bodyHeight + trackHeight - trackHeight/4);
     DeleteObject(brush); DeleteObject(pen);
 }
 void LightTank::TakeDamage(int dmg)
 {
-    health -= dmg * 2;
-    if (health < 0) health = 0;
-}
-void LightTank::OnHit(Rocket* rocket) {
-    TakeDamage(rocket->GetPower() * 2);
+    if (isDestroyed) return;
+
+    health -= dmg * 2; // Слабая броня
+    cout << "Light Tank took " << (dmg*2) << " damage (weak armor)! Health: " << health << endl;
+    if (health <= 0) {
+        health = 0;
+        Explode();
+    }
 }
 
-/*-------------------- ROCKET TANK ---------------------*/
-RocketTank::RocketTank(int InitX, int InitY)
-    : Tank(InitX, InitY, 250, 110, 80, 60, 180, 30)
+/*-------------------- DAMAGE TANK ---------------------*/
+DamageTank::DamageTank(int InitX, int InitY)
+    : Tank(InitX, InitY, 240, 100, 100, 60, 120, 35, 35)
 {
-    health = 90;
+    health = 120;
 }
-RocketTank::~RocketTank() {}
-void RocketTank::Show()
+DamageTank::~DamageTank() {}
+void DamageTank::Show()
 {
+    if (isDestroyed) return;
+
     HPEN pen = CreatePen(PS_SOLID, 3, RGB(100, 100, 0));
     HBRUSH brush = CreateSolidBrush(RGB(180, 180, 80));
     SelectObject(hdc, pen); SelectObject(hdc, brush);
@@ -270,14 +394,24 @@ void RocketTank::Show()
               X + (bodyWidth + turretWidth)/2, turretTop + turretHeight);
     DeleteObject(brush);
 
-    // ����� �� ������ �����
+    // Тройная пушечная на башне
     int turretCenterX = X + bodyWidth/2;
     int turretCenterY = turretTop + turretHeight/2;
-    int barrelWidth = gunLength;
-    int barrelHeight = 18;
+
+    // Верхний пулемет
     brush = CreateSolidBrush(RGB(220, 200, 40)); SelectObject(hdc, brush);
-    Rectangle(hdc, turretCenterX, turretCenterY - barrelHeight/2,
-              turretCenterX + barrelWidth, turretCenterY + barrelHeight/2);
+    Rectangle(hdc, turretCenterX, turretCenterY - 20,
+              turretCenterX + gunLength, turretCenterY - 12);
+
+    // Нижний пулемет
+    Rectangle(hdc, turretCenterX, turretCenterY + 12,
+              turretCenterX + gunLength, turretCenterY + 20);
+    DeleteObject(brush);
+
+    // Основной ствол по центру
+    brush = CreateSolidBrush(RGB(200, 180, 20)); SelectObject(hdc, brush);
+    Rectangle(hdc, turretCenterX, turretCenterY - 6,
+              turretCenterX + gunLength + 20, turretCenterY + 6);
     DeleteObject(brush);
 
     brush = CreateSolidBrush(RGB(100, 100, 0)); SelectObject(hdc, brush);
@@ -289,137 +423,268 @@ void RocketTank::Show()
         X + bodyWidth - bodyWidth/6, Y + bodyHeight + trackHeight - trackHeight/4);
     DeleteObject(brush); DeleteObject(pen);
 }
-void RocketTank::TakeDamage(int dmg)
+void DamageTank::TakeDamage(int dmg)
 {
+    if (isDestroyed) return;
+
     health -= dmg;
-    if (health < 0) health = 0;
-}
-void RocketTank::OnHit(Rocket* rocket) {
-    TakeDamage(rocket->GetPower());
+    cout << "Damage Tank took " << dmg << " damage! Health: " << health << endl;
+    if (health <= 0) {
+        health = 0;
+        Explode();
+    }
 }
 
-/*-------------------- STEALTH TANK ---------------------*/
-StealthTank::StealthTank(int InitX, int InitY)
-    : Tank(InitX, InitY, 210, 80, 60, 25, 90, 15)
+/*----------------------------------------*/
+/*          Rocket - наследуется от Tank   */
+/*----------------------------------------*/
+Rocket::Rocket(int InitX, int InitY, int targetX, int targetY, int pwr, int w, int h, int spd)
+    : Tank(InitX, InitY, w, h, 0, 0, 0, 0, spd), power(pwr), isActive(true), targetX(targetX), targetY(targetY)
 {
-    health = 60;
-}
-StealthTank::~StealthTank() {}
-void StealthTank::Show()
-{
-    HPEN pen = CreatePen(PS_SOLID, 3, RGB(0, 60, 0));
-    HBRUSH brush = CreateSolidBrush(RGB(40, 80, 40));
-    SelectObject(hdc, pen); SelectObject(hdc, brush);
-    Rectangle(hdc, X, Y + bodyHeight, X + bodyWidth, Y + bodyHeight + trackHeight);
-    DeleteObject(brush);
-    brush = CreateSolidBrush(RGB(50, 90, 50)); SelectObject(hdc, brush);
-    Rectangle(hdc, X + bodyWidth / 6, Y, X + bodyWidth - bodyWidth / 6, Y + bodyHeight);
-    DeleteObject(brush);
+    // Вычисляем направление к цели
+    int deltaX = targetX - InitX;
+    int deltaY = targetY - InitY;
+    double distance = sqrt(deltaX * deltaX + deltaY * deltaY);
 
-    int turretTop = Y - turretHeight;
-    brush = CreateSolidBrush(RGB(20, 40, 20)); SelectObject(hdc, brush);
-    Rectangle(hdc, X + (bodyWidth - turretWidth)/2, turretTop,
-              X + (bodyWidth + turretWidth)/2, turretTop + turretHeight);
-    DeleteObject(brush);
-
-    // ����� �� ������ �����
-    int turretCenterX = X + bodyWidth/2;
-    int turretCenterY = turretTop + turretHeight/2;
-    int barrelWidth = gunLength;
-    int barrelHeight = 10;
-    brush = CreateSolidBrush(RGB(50, 70, 50)); SelectObject(hdc, brush);
-    Rectangle(hdc, turretCenterX, turretCenterY - barrelHeight/2,
-              turretCenterX + barrelWidth, turretCenterY + barrelHeight/2);
-    DeleteObject(brush);
-
-    brush = CreateSolidBrush(RGB(30, 50, 30)); SelectObject(hdc, brush);
-    Ellipse(hdc, X + bodyWidth/6, Y + bodyHeight + trackHeight/4,
-        X + bodyWidth/6 + trackHeight/2, Y + bodyHeight + trackHeight - trackHeight/4);
-    Ellipse(hdc, X + bodyWidth/2 - trackHeight/4, Y + bodyHeight + trackHeight/4,
-        X + bodyWidth/2 + trackHeight/4, Y + bodyHeight + trackHeight - trackHeight/4);
-    Ellipse(hdc, X + bodyWidth - bodyWidth/6 - trackHeight/2, Y + bodyHeight + trackHeight/4,
-        X + bodyWidth - bodyWidth/6, Y + bodyHeight + trackHeight - trackHeight/4);
-    DeleteObject(brush); DeleteObject(pen);
+    if (distance > 0) {
+        directionX = (int)(speed * deltaX / distance);
+        directionY = (int)(speed * deltaY / distance);
+    } else {
+        directionX = speed;
+        directionY = 0;
+    }
 }
-void StealthTank::TakeDamage(int dmg)
-{
-    health -= dmg / 3;
-    if (health < 0) health = 0;
-}
-void StealthTank::OnHit(Rocket* rocket) {
-    TakeDamage(rocket->GetPower() / 3);
-}
-
-/*-------------------- ����� Rocket ---------------------*/
-Rocket::Rocket(int InitX, int InitY, int pwr)
-    : Point(InitX, InitY), power(pwr) {}
 Rocket::~Rocket() {}
 
 void Rocket::Show()
 {
-    Visible = true;
+    if (!isActive) return;
 
-    // 1. Draw rocket body (long ellipse, light gray)
-    HPEN penBody = CreatePen(PS_SOLID, 2, RGB(100, 100, 100));
-    HBRUSH brushBody = CreateSolidBrush(RGB(230, 230, 230));
+    Visible = true;
+    HPEN penBody = CreatePen(PS_SOLID, 3, RGB(255, 100, 0));
+    HBRUSH brushBody = CreateSolidBrush(RGB(255, 200, 0));
     SelectObject(hdc, penBody); SelectObject(hdc, brushBody);
-    Ellipse(hdc, X - 18, Y - 6, X + 18, Y + 6);
+    Ellipse(hdc, X - bodyWidth/2, Y - bodyHeight/2, X + bodyWidth/2, Y + bodyHeight/2);
     DeleteObject(brushBody); DeleteObject(penBody);
 
-    // 2. Draw rocket nose (red triangle)
-    POINT nose[3] = {
-        { X + 18, Y },
-        { X + 10, Y - 8 },
-        { X + 10, Y + 8 }
-    };
-    HPEN penNose = CreatePen(PS_SOLID, 1, RGB(200, 0, 0));
-    HBRUSH brushNose = CreateSolidBrush(RGB(255, 0, 0));
-    SelectObject(hdc, penNose); SelectObject(hdc, brushNose);
-    Polygon(hdc, nose, 3);
-    DeleteObject(brushNose); DeleteObject(penNose);
-
-    // 3. Draw rocket tail (blue triangles)
-    POINT tail1[3] = {
-        { X - 18, Y },
-        { X - 28, Y - 8 },
-        { X - 18, Y - 4 }
-    };
-    POINT tail2[3] = {
-        { X - 18, Y },
-        { X - 28, Y + 8 },
-        { X - 18, Y + 4 }
-    };
-    HPEN penTail = CreatePen(PS_SOLID, 1, RGB(0, 0, 180));
-    HBRUSH brushTail = CreateSolidBrush(RGB(0, 0, 255));
-    SelectObject(hdc, penTail); SelectObject(hdc, brushTail);
-    Polygon(hdc, tail1, 3);
-    Polygon(hdc, tail2, 3);
-    DeleteObject(brushTail); DeleteObject(penTail);
-
-    // 4. Draw flame (orange/yellow polygon)
-    POINT flame[3] = {
-        { X - 30, Y },
-        { X - 25, Y - 5 },
-        { X - 25, Y + 5 }
-    };
-    HPEN penFlame = CreatePen(PS_SOLID, 1, RGB(255, 140, 0));
-    HBRUSH brushFlame = CreateSolidBrush(RGB(255, 200, 0));
-    SelectObject(hdc, penFlame); SelectObject(hdc, brushFlame);
-    Polygon(hdc, flame, 3);
-    DeleteObject(brushFlame); DeleteObject(penFlame);
+    // Хвост ракеты
+    HPEN penTail = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
+    SelectObject(hdc, penTail);
+    MoveToEx(hdc, X - bodyWidth/2, Y, NULL); LineTo(hdc, X - bodyWidth, Y);
+    DeleteObject(penTail);
 }
+
+void Rocket::Hide()
+{
+    if (!isActive) return;
+
+    Visible = false;
+    HPEN blackPen = CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
+    HBRUSH blackBrush = CreateSolidBrush(RGB(0, 0, 0));
+    SelectObject(hdc, blackPen); SelectObject(hdc, blackBrush);
+    Rectangle(hdc, X - bodyWidth, Y - bodyHeight, X + bodyWidth, Y + bodyHeight);
+    DeleteObject(blackBrush); DeleteObject(blackPen);
+}
+
 void Rocket::MoveTo(int NewX, int NewY)
 {
+    if (!isActive) return;
     Hide();
     SetPosition(NewX, NewY);
     Show();
 }
-bool Rocket::CheckCollision(Tank* t)
+
+bool Rocket::CheckCollision(Tank* tank)
 {
-    if (t->GetX() == X && t->GetY() == Y) {
-        t->OnHit(this); // Double dispatch: ������� ���������
-        return true;
-    }
-    return false;
+    if (!isActive || tank->IsDestroyed() || tank == this) return false;
+
+    int tankCenterX = tank->GetX() + tank->GetBodyWidth() / 2;
+    int tankCenterY = tank->GetY() + tank->GetBodyHeight() / 2;
+    int distance = sqrt((tankCenterX - X) * (tankCenterX - X) + (tankCenterY - Y) * (tankCenterY - Y));
+    return distance < 60;
 }
+
+void Rocket::OnCollision(Tank* tank)
+{
+    cout << "ROCKET HIT! Tank took " << power << " damage!" << endl;
+    tank->TakeDamage(power);
+    Deactivate();
+
+    // Анимация взрыва
+    HPEN pen = CreatePen(PS_SOLID, 5, RGB(255, 255, 0));
+    HBRUSH brush = CreateSolidBrush(RGB(255, 150, 0));
+    SelectObject(hdc, pen); SelectObject(hdc, brush);
+    Ellipse(hdc, X - 40, Y - 40, X + 40, Y + 40);
+    DeleteObject(brush); DeleteObject(pen);
+    Sleep(300);
+}
+
+void Rocket::MoveToTarget()
+{
+    if (!isActive) return;
+
+    int newX = X + directionX;
+    int newY = Y + directionY;
+
+    // Проверка границ экрана
+    if (newX < 0 || newX > 2000 || newY < 0 || newY > 1200) {
+        Deactivate();
+        return;
+    }
+
+    MoveTo(newX, newY);
+}
+
+void Rocket::Deactivate()
+{
+    isActive = false;
+    Hide();
+}
+
 int Rocket::GetPower() const { return power; }
+
+/*----------------------------------------*/
+/*          Mina - наследуется от Tank     */
+/*----------------------------------------*/
+Mina::Mina(int InitX, int InitY, int dmg, int w, int h)
+    : Tank(InitX, InitY, w, h, 0, 0, 0, 0, 0), damage(dmg), isExploded(false) {}
+Mina::~Mina() {}
+
+void Mina::Show()
+{
+    if (isExploded) return;
+
+    Visible = true;
+    HPEN pen = CreatePen(PS_SOLID, 2, RGB(50, 50, 50));
+    HBRUSH brush = CreateSolidBrush(RGB(100, 100, 100));
+    SelectObject(hdc, pen); SelectObject(hdc, brush);
+    Ellipse(hdc, X - bodyWidth/2, Y - bodyHeight/2, X + bodyWidth/2, Y + bodyHeight/2);
+    DeleteObject(brush);
+
+    // Шипы мины
+    MoveToEx(hdc, X - bodyWidth/2, Y, NULL); LineTo(hdc, X - bodyWidth/2 - 5, Y);
+    MoveToEx(hdc, X + bodyWidth/2, Y, NULL); LineTo(hdc, X + bodyWidth/2 + 5, Y);
+    MoveToEx(hdc, X, Y - bodyHeight/2, NULL); LineTo(hdc, X, Y - bodyHeight/2 - 5);
+    MoveToEx(hdc, X, Y + bodyHeight/2, NULL); LineTo(hdc, X, Y + bodyHeight/2 + 5);
+
+    DeleteObject(pen);
+}
+
+void Mina::Hide()
+{
+    Visible = false;
+    HPEN blackPen = CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
+    HBRUSH blackBrush = CreateSolidBrush(RGB(0, 0, 0));
+    SelectObject(hdc, blackPen); SelectObject(hdc, blackBrush);
+    Rectangle(hdc, X - bodyWidth, Y - bodyHeight, X + bodyWidth, Y + bodyHeight);
+    DeleteObject(blackBrush); DeleteObject(blackPen);
+}
+
+bool Mina::CheckCollision(Tank* tank)
+{
+    if (isExploded || tank->IsDestroyed() || tank == this) return false;
+
+    int tankCenterX = tank->GetX() + tank->GetBodyWidth() / 2;
+    int tankCenterY = tank->GetY() + tank->GetBodyHeight() / 2;
+    int distance = sqrt((tankCenterX - X) * (tankCenterX - X) + (tankCenterY - Y) * (tankCenterY - Y));
+    return distance < 40;
+}
+
+void Mina::OnCollision(Tank* tank)
+{
+    cout << "BOOM! Tank hit a mine!" << endl;
+    tank->TakeDamage(damage);
+    Explode();
+}
+
+void Mina::Explode()
+{
+    if (isExploded) return;
+
+    Hide();
+    // Анимация взрыва
+    HPEN pen = CreatePen(PS_SOLID, 3, RGB(255, 255, 0));
+    HBRUSH brush = CreateSolidBrush(RGB(255, 100, 0));
+    SelectObject(hdc, pen); SelectObject(hdc, brush);
+    Ellipse(hdc, X - 30, Y - 30, X + 30, Y + 30);
+    DeleteObject(brush); DeleteObject(pen);
+    Sleep(500);
+
+    // Очистка взрыва
+    HPEN blackPen = CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
+    HBRUSH blackBrush = CreateSolidBrush(RGB(0, 0, 0));
+    SelectObject(hdc, blackPen); SelectObject(hdc, blackBrush);
+    Rectangle(hdc, X - 35, Y - 35, X + 35, Y + 35);
+    DeleteObject(blackBrush); DeleteObject(blackPen);
+
+    isExploded = true;
+}
+
+int Mina::GetDamage() const { return damage; }
+bool Mina::IsExploded() const { return isExploded; }
+
+/*----------------------------------------*/
+/*        Remont - наследуется от Tank     */
+/*----------------------------------------*/
+Remont::Remont(int InitX, int InitY, int heal, int w, int h)
+    : Tank(InitX, InitY, w, h, 0, 0, 0, 0, 0), healAmount(heal), isUsed(false) {}
+Remont::~Remont() {}
+
+void Remont::Show()
+{
+    if (isUsed) return;
+
+    Visible = true;
+
+    // Зеленый прямоугольник
+    HPEN pen = CreatePen(PS_SOLID, 2, RGB(0, 100, 0));
+    HBRUSH brush = CreateSolidBrush(RGB(0, 200, 0));
+    SelectObject(hdc, pen); SelectObject(hdc, brush);
+    Rectangle(hdc, X - bodyWidth/2, Y - bodyHeight/2,
+              X + bodyWidth/2, Y + bodyHeight/2);
+    DeleteObject(brush);
+
+    // Символ H
+    pen = CreatePen(PS_SOLID, 3, RGB(255, 255, 255));
+    SelectObject(hdc, pen);
+    MoveToEx(hdc, X - 10, Y - 10, NULL); LineTo(hdc, X - 10, Y + 10);
+    MoveToEx(hdc, X + 10, Y - 10, NULL); LineTo(hdc, X + 10, Y + 10);
+    MoveToEx(hdc, X - 10, Y, NULL); LineTo(hdc, X + 10, Y);
+
+    DeleteObject(pen);
+}
+
+void Remont::Hide()
+{
+    Visible = false;
+    HPEN blackPen = CreatePen(PS_SOLID, 3, RGB(0, 0, 0));
+    HBRUSH blackBrush = CreateSolidBrush(RGB(0, 0, 0));
+    SelectObject(hdc, blackPen); SelectObject(hdc, blackBrush);
+    Rectangle(hdc, X - bodyWidth, Y - bodyHeight,
+              X + bodyWidth, Y + bodyHeight);
+    DeleteObject(blackBrush); DeleteObject(blackPen);
+}
+
+bool Remont::CheckCollision(Tank* tank)
+{
+    if (isUsed || tank->IsDestroyed() || tank == this) return false;
+
+    int tankCenterX = tank->GetX() + tank->GetBodyWidth() / 2;
+    int tankCenterY = tank->GetY() + tank->GetBodyHeight() / 2;
+    return (abs(tankCenterX - X) < 50 && abs(tankCenterY - Y) < 40);
+}
+
+void Remont::OnCollision(Tank* tank)
+{
+    tank->Heal(healAmount);
+    Use();
+}
+
+void Remont::Use()
+{
+    isUsed = true;
+    Hide();
+}
+
+int Remont::GetHealAmount() const { return healAmount; }
+bool Remont::IsUsed() const { return isUsed; }
