@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <iostream>
 #include <locale>
+#include <cmath>
 using namespace std;
 
 #include "Header.h"
@@ -34,6 +35,42 @@ void SetupConsoleFont() {
     SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), FALSE, &cfi);
 }
 
+// Улучшенная функция управления танком с полиморфной проверкой коллизий
+void ControlTank(Tank* tank, IInteractable** allObjects, int objectCount)
+{
+    if (tank->IsDestroyed()) return;
+
+    int figX = tank->GetX(), figY = tank->GetY();
+    while (1)
+    {
+        if (KEY_DOWN(VK_ESCAPE)) break;
+        if (KEY_DOWN(VK_LEFT)) {
+            figX -= tank->GetSpeed();
+            tank->MoveTo(figX, figY);
+            CheckCollisions(tank, allObjects, objectCount);
+            Sleep(200);
+        }
+        if (KEY_DOWN(VK_RIGHT)) {
+            figX += tank->GetSpeed();
+            tank->MoveTo(figX, figY);
+            CheckCollisions(tank, allObjects, objectCount);
+            Sleep(200);
+        }
+        if (KEY_DOWN(VK_UP)) {
+            figY -= tank->GetSpeed();
+            tank->MoveTo(figX, figY);
+            CheckCollisions(tank, allObjects, objectCount);
+            Sleep(200);
+        }
+        if (KEY_DOWN(VK_DOWN)) {
+            figY += tank->GetSpeed();
+            tank->MoveTo(figX, figY);
+            CheckCollisions(tank, allObjects, objectCount);
+            Sleep(200);
+        }
+    }
+}
+
 int main()
 {
     setlocale(LC_ALL, "English");
@@ -53,162 +90,173 @@ int main()
 
         if (hdc != 0)
         {
-            cout << "Initialization successful. Preparing to draw the tank..." << endl;
+            cout << "Tank Battle Demonstration" << endl;
+            cout << "========================" << endl;
+
+            // Создаем 10 мин и 10 ремонтных комплектов распределенных по всей области
+            const int mineCount = 10;
+            const int repairCount = 10;
+
+            Mina* mines[mineCount];
+            mines[0] = new Mina(300, 200);   // Верхний левый
+            mines[1] = new Mina(800, 300);   // Верхний центр
+            mines[2] = new Mina(1400, 250);  // Верхний правый
+            mines[3] = new Mina(500, 600);   // Центр левый
+            mines[4] = new Mina(1000, 650);  // Центр
+            mines[5] = new Mina(1500, 600);  // Центр правый
+            mines[6] = new Mina(400, 950);   // Низ левый
+            mines[7] = new Mina(900, 1000);  // Низ центр
+            mines[8] = new Mina(1300, 900);  // Низ правый
+            mines[9] = new Mina(1700, 500);  // Правый край
+
+            Remont* repairs[repairCount];
+            repairs[0] = new Remont(200, 400);   // Левый край верх
+            repairs[1] = new Remont(600, 450);   // Левый центр верх
+            repairs[2] = new Remont(1100, 400);  // Центр верх
+            repairs[3] = new Remont(1600, 350);  // Правый верх
+            repairs[4] = new Remont(350, 750);   // Левый центр
+            repairs[5] = new Remont(1200, 800);  // Центр
+            repairs[6] = new Remont(1800, 750);  // Правый центр
+            repairs[7] = new Remont(250, 1100);  // Левый низ
+            repairs[8] = new Remont(750, 1150);  // Центр низ
+            repairs[9] = new Remont(1450, 1100); // Правый низ
+
+            // Создаем единый массив интерактивных объектов
+            const int totalInteractiveObjects = mineCount + repairCount;
+            IInteractable* interactiveObjects[totalInteractiveObjects];
+
+            for (int i = 0; i < mineCount; i++) {
+                interactiveObjects[i] = mines[i];
+                mines[i]->Show();
+            }
+
+            for (int i = 0; i < repairCount; i++) {
+                interactiveObjects[mineCount + i] = repairs[i];
+                repairs[i]->Show();
+            }
+
+            cout << "Battlefield prepared with " << mineCount << " mines and " << repairCount << " repair kits positioned across the area!" << endl;
             Sleep(1000);
 
-            Tank tankObj(700, 800, 250, 120, 120, 70, 150, 40);
-            tankObj.Show();
-            cout << "Tank drawn at position (700, 800)." << endl;
-            cout << "Press 1 to continue." << endl;
-            while (1)
-            {
-                if (KEY_DOWN(49)) break;
-                Sleep(100);
+            // Создаем все танки на равном расстоянии
+            Tank mainTank(700, 800, 250, 120, 120, 70, 150, 40);
+            HeavyTank heavy(2000, 1000);
+            LightTank light(900, 200);
+            DamageTank damage(1200, 200);
+
+            Tank* allTanks[4] = {&mainTank, &heavy, &light, &damage};
+            string tankNames[4] = {"Main Tank", "Heavy Tank", "Light Tank", "Damage Tank"};
+
+            for (int i = 0; i < 4; i++) {
+                allTanks[i]->Show();
             }
 
-            cout << "Moving the tank to position (700, 800)..." << endl;
-            tankObj.MoveTo(700, 800);
-            cout << "Press 2 to continue." << endl;
-            while (1)
-            {
-                if (KEY_DOWN(50)) break;
-                Sleep(100);
+            cout << "All tanks deployed at equal distances!" << endl;
+            for (int i = 0; i < 4; i++) {
+                cout << tankNames[i] << ": " << allTanks[i]->GetHealth() << " HP" << endl;
             }
 
-            cout << "Tank control mode:" << endl;
-            cout << "- Use arrow keys to move" << endl;
-            cout << "- Press ESC to exit control mode" << endl;
-            tankObj.Drag(30);
-            cout << "Tank control finished. Press 3 to continue." << endl;
-            while (1)
-            {
-                if (KEY_DOWN(51)) break;
-                Sleep(100);
+            // Управление танками с полиморфной проверкой коллизий
+            for (int tankIndex = 0; tankIndex < 4; tankIndex++) {
+                cout << "\nPress " << (tankIndex + 1) << " to control " << tankNames[tankIndex] << endl;
+                while (1)
+                {
+                    if (KEY_DOWN(49 + tankIndex)) break;
+                    Sleep(100);
+                }
+
+                cout << tankNames[tankIndex] << " control active (arrows, ESC to stop)" << endl;
+                ControlTank(allTanks[tankIndex], interactiveObjects, totalInteractiveObjects);
             }
 
-            cout << "Location class demonstration..." << endl;
-            Location locationObj(100, 100);
-            cout << "Location object created at position ("
-                << locationObj.GetX() << ", "
-                << locationObj.GetY() << ")" << endl;
+            cout << "\n=== ROCKET ATTACK DEMONSTRATION ===" << endl;
 
-            locationObj.SetX(150);
-            locationObj.SetY(150);
+            // Демонстрация ракетных атак с полиморфизмом
+            Tank* targets[3] = {&light, &heavy, &damage};
+            string targetNames[3] = {"Light Tank", "Heavy Tank", "Damage Tank"};
+            int rocketPowers[3] = {50, 80, 70};
+            int launchPositions[3][2] = {{100, 100}, {1800, 200}, {100, 1000}};
 
-            cout << "Object coordinates changed to ("
-                << locationObj.GetX() << ", "
-                << locationObj.GetY() << ")" << endl;
+            for (int i = 0; i < 3; i++) {
+                cout << "\nPress " << (i + 5) << " to launch rocket at " << targetNames[i] << endl;
+                while (1)
+                {
+                    if (KEY_DOWN(53 + i)) break;
+                    Sleep(100);
+                }
 
-            cout << "Press 4 to continue to tank hierarchies." << endl;
-            while (1)
-            {
-                if (KEY_DOWN(52)) break;
-                Sleep(100);
+                if (!targets[i]->IsDestroyed()) {
+                    cout << "Rocket launched at " << targetNames[i] << "!" << endl;
+                    Rocket* rocket = new Rocket(launchPositions[i][0], launchPositions[i][1],
+                                               targets[i]->GetX() + targets[i]->GetBodyWidth()/2,
+                                               targets[i]->GetY() + targets[i]->GetBodyHeight()/2,
+                                               rocketPowers[i]);
+                    rocket->Show();
+
+                    for (int j = 0; j < 200 && rocket->IsActive(); j++) {
+                        rocket->MoveToTarget();
+
+                        if (rocket->CheckCollision(targets[i])) {
+                            rocket->OnCollision(targets[i]);
+                            break;
+                        }
+                        Sleep(50);
+                    }
+                    delete rocket;
+                } else {
+                    cout << targetNames[i] << " already destroyed!" << endl;
+                }
             }
 
-            // ----------- ???????????? ???????? -----------
-            int centerX = 1400;
-            int centerY = 800;
-            int tankSpacing = 320;
-
-            cout << "Vertical hierarchy: HeavyTank and LightTank" << endl;
-            HeavyTank heavy(centerX - tankSpacing, centerY);
-            LightTank light(centerX, centerY);
-            heavy.Show();
-            light.Show();
-
-            cout << "Press 5 to control HeavyTank (arrows, ESC to exit)." << endl;
-            while (1)
-            {
-                if (KEY_DOWN(53)) break;
-                Sleep(100);
-            }
-            heavy.Drag(30);
-
-            cout << "Press 6 to control LightTank (arrows, ESC to exit)." << endl;
-            while (1)
-            {
-                if (KEY_DOWN(54)) break;
-                Sleep(100);
-            }
-            light.Drag(30);
-
-            cout << "Press 7 to launch a rocket at HeavyTank." << endl;
-            while (1)
-            {
-                if (KEY_DOWN(55)) break;
-                Sleep(100);
-            }
-            Rocket rocket1(heavy.GetX(), heavy.GetY(), 30);
-            rocket1.Show();
-            Sleep(700);
-            if (rocket1.CheckCollision(&heavy)) {
-                cout << "HeavyTank current health: " << heavy.GetHealth() << endl;
-            }
-            Sleep(1000);
-
-            // ----------- ??????? ???????? -----------
-            cout << "Fan hierarchy: RocketTank and StealthTank" << endl;
-            RocketTank rocketTank(centerX + tankSpacing, centerY);
-            StealthTank stealthTank(centerX + 2 * tankSpacing, centerY);
-            rocketTank.Show();
-            stealthTank.Show();
-
-            cout << "Press 8 to control RocketTank (arrows, ESC to exit)." << endl;
+            // Демонстрация атаки на главный танк
+            cout << "\nPress 8 to launch rocket at Main Tank" << endl;
             while (1)
             {
                 if (KEY_DOWN(56)) break;
                 Sleep(100);
             }
-            rocketTank.Drag(30);
 
-            cout << "Press 9 to control StealthTank (arrows, ESC to exit)." << endl;
-            while (1)
-            {
-                if (KEY_DOWN(57)) break;
-                Sleep(100);
-            }
-            stealthTank.Drag(30);
+            if (!mainTank.IsDestroyed()) {
+                cout << "Rocket launched at Main Tank!" << endl;
+                Rocket* rocket4 = new Rocket(1500, 100, mainTank.GetX() + mainTank.GetBodyWidth()/2,
+                              mainTank.GetY() + mainTank.GetBodyHeight()/2, 60);
+                rocket4->Show();
 
-            cout << "Press 0 to launch a rocket at StealthTank." << endl;
-            while (1)
-            {
-                if (KEY_DOWN(48)) break;
-                Sleep(100);
-            }
-            Rocket rocket2(stealthTank.GetX(), stealthTank.GetY(), 20);
-            rocket2.Show();
-            Sleep(700);
-            if (rocket2.CheckCollision(&stealthTank)) {
-                cout << "StealthTank current health: " << stealthTank.GetHealth() << endl;
-            }
-            Sleep(1000);
+                for (int i = 0; i < 200 && rocket4->IsActive(); i++) {
+                    rocket4->MoveToTarget();
 
-            cout << "Press ENTER to clear all tanks and exit..." << endl;
+                    if (rocket4->CheckCollision(&mainTank)) {
+                        rocket4->OnCollision(&mainTank);
+                        break;
+                    }
+                    Sleep(50);
+                }
+                delete rocket4;
+            } else {
+                cout << "Main Tank already destroyed!" << endl;
+            }
+
+            cout << "\n=== FINAL BATTLE REPORT ===" << endl;
+            for (int i = 0; i < 4; i++) {
+                cout << tankNames[i] << ": " << (allTanks[i]->IsDestroyed() ? "DESTROYED" : "ALIVE")
+                     << " (" << allTanks[i]->GetHealth() << " HP)" << endl;
+            }
+
+            cout << "\nPress ENTER to exit..." << endl;
             while (1)
             {
                 if (KEY_DOWN(VK_RETURN)) break;
                 Sleep(100);
             }
-            heavy.Hide();
-            light.Hide();
-            rocketTank.Hide();
-            stealthTank.Hide();
-            tankObj.Hide();
+
+            // Очистка памяти
+            for (int i = 0; i < mineCount; i++) delete mines[i];
+            for (int i = 0; i < repairCount; i++) delete repairs[i];
 
             ReleaseDC(hwnd, hdc);
         }
-        else
-        {
-            cout << "Error: Failed to get the device context!" << endl;
-        }
-    }
-    else
-    {
-        cout << "Error: Failed to get the console window handle!" << endl;
     }
 
-    cout << "Program finished. Press any key to exit..." << endl;
     system("pause");
     return 0;
 }
